@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import crypto from 'node:crypto';
 import express from 'express';
 import bolt from '@slack/bolt';
@@ -22,7 +23,6 @@ const receiver = new ExpressReceiver({
   signingSecret: config.slackSigningSecret,
   endpoints: '/slack/events'
 });
-console.log({config})
 const boltApp = new App({
   token: config.slackBotToken,
   receiver
@@ -190,7 +190,7 @@ expressApp.get('/health', (_req, res) => {
 });
 
 export async function startServer(port = process.env.PORT || 3000) {
-  await boltApp.init();
+  await boltApp.start();
 
   expressApp.listen(port, () => {
     // eslint-disable-next-line no-console
