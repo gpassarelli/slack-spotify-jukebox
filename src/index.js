@@ -78,11 +78,11 @@ boltApp.message(async ({ message, say, logger }) => {
   }
 });
 
-const slashCommandName = config.commandPrefix.startsWith('/')
+const configuredSlashCommandName = config.commandPrefix.startsWith('/')
   ? config.commandPrefix
   : `/${config.commandPrefix}`;
 
-boltApp.command(slashCommandName, async ({ command, ack, respond, logger }) => {
+async function handleSlashCommand({ command, ack, respond, logger }) {
   await ack();
 
   if (config.listenChannelId && command.channel_id !== config.listenChannelId) {
@@ -92,7 +92,7 @@ boltApp.command(slashCommandName, async ({ command, ack, respond, logger }) => {
 
   const songQuery = command.text?.trim();
   if (!songQuery) {
-    await respond(`Please provide a song name, for example: ${slashCommandName} bohemian rhapsody queen`);
+    await respond(`Please provide a song name, for example: ${command.command} bohemian rhapsody queen`);
     return;
   }
 
@@ -108,7 +108,12 @@ boltApp.command(slashCommandName, async ({ command, ack, respond, logger }) => {
     logger.error(error);
     await respond('Sorry, something went wrong while talking to Spotify.');
   }
-});
+}
+
+const slashCommands = new Set(['/play', configuredSlashCommandName]);
+for (const slashCommandName of slashCommands) {
+  boltApp.command(slashCommandName, handleSlashCommand);
+}
 
 export const expressApp = express();
 expressApp.use(receiver.router);

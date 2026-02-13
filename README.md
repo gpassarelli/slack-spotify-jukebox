@@ -48,7 +48,7 @@ To let users add songs with a slash command (for example `/play`):
    - Local dev: `https://<your-tunnel-domain>/slack/commands`
    - Netlify: `https://<your-site>.netlify.app/.netlify/functions/app/slack/commands`
 3. Users can then run `/play <song name>`, and the app will search Spotify and add the top result to the configured playlist.
-4. The slash command name should match `JUKEBOX_COMMAND_PREFIX` (default prefix `play` means slash command `/play`).
+4. By default `/play` is always supported. If `JUKEBOX_COMMAND_PREFIX` is customized, that slash command is also supported.
 
 ## Spotify setup
 
