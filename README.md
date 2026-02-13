@@ -39,6 +39,16 @@ the bot will:
    - Local dev: `https://<your-tunnel-domain>/slack/events`
    - Netlify: `https://<your-site>.netlify.app/.netlify/functions/app/slack/events`
 
+## Slack slash command setup
+
+To let users add songs with a slash command (for example `/play`):
+
+1. In your Slack app, go to **Slash Commands** and create a command.
+2. Set the Request URL to:
+   - Local dev: `https://<your-tunnel-domain>/slack/commands`
+   - Netlify: `https://<your-site>.netlify.app/.netlify/functions/app/slack/commands`
+3. Users can then run `/play <song name>`, and the app will search Spotify and add the top result to the configured playlist.
+
 ## Spotify setup
 
 1. Create an app at https://developer.spotify.com/dashboard.

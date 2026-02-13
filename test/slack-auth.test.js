@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSlackInstallUrl } from '../src/slack.js';
+import crypto from 'node:crypto';
+import { buildSlackInstallUrl, verifySlackRequest } from '../src/slack.js';
 
 test('buildSlackInstallUrl includes required slack oauth params', () => {
   const url = buildSlackInstallUrl({
@@ -17,4 +18,38 @@ test('buildSlackInstallUrl includes required slack oauth params', () => {
   assert.equal(parsed.searchParams.get('scope'), 'chat:write,channels:history');
   assert.equal(parsed.searchParams.get('redirect_uri'), 'http://localhost:3000/slack/oauth/callback');
   assert.equal(parsed.searchParams.get('state'), 'state-1');
+});
+
+test('verifySlackRequest accepts a valid slack signature', (t) => {
+  const signingSecret = 'secret-1';
+  const timestamp = '1700000000';
+  const rawBody = 'token=abc&team_id=T1&text=bohemian+rhapsody';
+  const signature = `v0=${crypto
+    .createHmac('sha256', signingSecret)
+    .update(`v0:${timestamp}:${rawBody}`)
+    .digest('hex')}`;
+
+  t.mock.method(Date, 'now', () => Number(timestamp) * 1000);
+
+  assert.equal(
+    verifySlackRequest({ signingSecret, timestamp, signature, rawBody }),
+    true
+  );
+});
+
+test('verifySlackRequest rejects stale slack signatures', (t) => {
+  const signingSecret = 'secret-1';
+  const timestamp = '1700000000';
+  const rawBody = 'token=abc&team_id=T1&text=bohemian+rhapsody';
+  const signature = `v0=${crypto
+    .createHmac('sha256', signingSecret)
+    .update(`v0:${timestamp}:${rawBody}`)
+    .digest('hex')}`;
+
+  t.mock.method(Date, 'now', () => (Number(timestamp) + 301) * 1000);
+
+  assert.equal(
+    verifySlackRequest({ signingSecret, timestamp, signature, rawBody }),
+    false
+  );
 });
