@@ -13,7 +13,7 @@ import {
   findTrack,
   formatTrack
 } from './spotify.js';
-import { buildSlackInstallUrl, verifySlackRequest } from './slack.js';
+import { buildSlackInstallUrl } from './slack.js';
 
 const { App, ExpressReceiver } = bolt;
 const config = getConfig();
@@ -21,7 +21,10 @@ const spotifyApi = createSpotifyClient(config);
 
 const receiver = new ExpressReceiver({
   signingSecret: config.slackSigningSecret,
-  endpoints: '/slack/events'
+  endpoints: {
+    events: '/slack/events',
+    commands: '/slack/commands'
+  }
 });
 const boltApp = new App({
   token: config.slackBotToken,
@@ -75,53 +78,40 @@ boltApp.message(async ({ message, say, logger }) => {
   }
 });
 
-export const expressApp = express();
-expressApp.use(receiver.router);
+const slashCommandName = config.commandPrefix.startsWith('/')
+  ? config.commandPrefix
+  : `/${config.commandPrefix}`;
 
-expressApp.post('/slack/commands', express.raw({ type: 'application/x-www-form-urlencoded' }), async (req, res) => {
-  const rawBody = req.body?.toString('utf8') || '';
-  const timestamp = req.headers['x-slack-request-timestamp'];
-  const signature = req.headers['x-slack-signature'];
+boltApp.command(slashCommandName, async ({ command, ack, respond, logger }) => {
+  await ack();
 
-  const isValid = verifySlackRequest({
-    signingSecret: config.slackSigningSecret,
-    timestamp: typeof timestamp === 'string' ? timestamp : '',
-    signature: typeof signature === 'string' ? signature : '',
-    rawBody
-  });
-
-  if (!isValid) {
-    res.status(401).send('Invalid Slack request signature.');
+  if (config.listenChannelId && command.channel_id !== config.listenChannelId) {
+    await respond(`This command is only enabled in channel ${config.listenChannelId}.`);
     return;
   }
 
-  const params = new URLSearchParams(rawBody);
-  const songQuery = params.get('text')?.trim();
-  const channelId = params.get('channel_id');
-
-  if (config.listenChannelId && channelId !== config.listenChannelId) {
-    res.status(200).send(`This command is only enabled in channel ${config.listenChannelId}.`);
-    return;
-  }
-
+  const songQuery = command.text?.trim();
   if (!songQuery) {
-    res.status(200).send('Please provide a song name, for example: /play bohemian rhapsody queen');
+    await respond(`Please provide a song name, for example: ${slashCommandName} bohemian rhapsody queen`);
     return;
   }
 
   if (!config.spotifyRefreshToken) {
-    res.status(200).send('Spotify account is not connected yet. Ask an admin to connect it from the app home page.');
+    await respond('Spotify account is not connected yet. Ask an admin to connect it from the app home page.');
     return;
   }
 
   try {
     const result = await addSongToPlaylist(songQuery);
-    res.status(200).send(result.message);
+    await respond(result.message);
   } catch (error) {
-    console.error(error);
-    res.status(500).send('Sorry, something went wrong while talking to Spotify.');
+    logger.error(error);
+    await respond('Sorry, something went wrong while talking to Spotify.');
   }
 });
+
+export const expressApp = express();
+expressApp.use(receiver.router);
 
 expressApp.get('/', (_req, res) => {
   res.status(200).send(`<!doctype html>
