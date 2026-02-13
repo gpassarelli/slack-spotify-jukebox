@@ -16,6 +16,7 @@ the bot will:
 ## Features
 
 - HTTP-based Slack Events API receiver (Express)
+- Front page with **Login with Spotify** button to connect your Spotify account
 - Simple message command (`play <song name>` by default)
 - Optional single-channel lock (only listen in one Slack channel)
 - Friendly confirmation/error replies
@@ -24,7 +25,7 @@ the bot will:
 
 - Node.js 20+
 - A Slack app with bot token + event subscriptions
-- A Spotify app with API credentials and a refresh token
+- A Spotify app with API credentials
 
 ## Slack setup
 
@@ -41,11 +42,10 @@ the bot will:
 ## Spotify setup
 
 1. Create an app at https://developer.spotify.com/dashboard.
-2. Collect:
-   - Client ID
-   - Client Secret
-3. Generate a refresh token with playlist-modify scope (e.g. `playlist-modify-public` and/or `playlist-modify-private`).
-4. Create or choose the playlist that will act as the jukebox queue and copy its playlist ID.
+2. Add a redirect URI:
+   - Local example: `http://localhost:3000/spotify/oauth/callback`
+   - Netlify example: `https://<your-site>.netlify.app/.netlify/functions/slack-events/spotify/oauth/callback`
+3. Collect your Client ID and Client Secret.
 
 ## Configuration
 
@@ -57,15 +57,27 @@ SLACK_SIGNING_SECRET=...
 
 SPOTIFY_CLIENT_ID=...
 SPOTIFY_CLIENT_SECRET=...
-SPOTIFY_REFRESH_TOKEN=...
 SPOTIFY_PLAYLIST_ID=...
 
+# Optional at first boot, required for adding songs
+SPOTIFY_REFRESH_TOKEN=...
+
 # Optional
+SPOTIFY_REDIRECT_URI=http://localhost:3000/spotify/oauth/callback
 JUKEBOX_COMMAND_PREFIX=play
 JUKEBOX_CHANNEL_ID=C0123456789
 SPOTIFY_MARKET=US
 PORT=3000
 ```
+
+## Connect Spotify account from app UI
+
+1. Start the app.
+2. Open `/` in your browser.
+3. Click **Login with Spotify**.
+4. Approve the app.
+5. Copy the refresh token shown on callback page.
+6. Set `SPOTIFY_REFRESH_TOKEN` in your environment and restart.
 
 ## Local development (Express HTTP server)
 

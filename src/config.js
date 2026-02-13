@@ -3,7 +3,6 @@ const required = [
   'SLACK_SIGNING_SECRET',
   'SPOTIFY_CLIENT_ID',
   'SPOTIFY_CLIENT_SECRET',
-  'SPOTIFY_REFRESH_TOKEN',
   'SPOTIFY_PLAYLIST_ID'
 ];
 
@@ -23,6 +22,9 @@ export function getConfig(env = process.env) {
     spotifyPlaylistId: env.SPOTIFY_PLAYLIST_ID,
     commandPrefix: env.JUKEBOX_COMMAND_PREFIX || 'play',
     listenChannelId: env.JUKEBOX_CHANNEL_ID || null,
-    spotifyMarket: env.SPOTIFY_MARKET || 'US'
+    spotifyMarket: env.SPOTIFY_MARKET || 'US',
+    spotifyRedirectUri:
+      env.SPOTIFY_REDIRECT_URI ||
+      'http://localhost:3000/spotify/oauth/callback'
   };
 }
