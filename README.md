@@ -16,7 +16,7 @@ the bot will:
 ## Features
 
 - HTTP-based Slack Events API receiver (Express)
-- Front page with **Login with Spotify** button to connect your Spotify account
+- Front page with **Login with Spotify** and **Add to Slack workspace** buttons
 - Simple message command (`play <song name>` by default)
 - Optional single-channel lock (only listen in one Slack channel)
 - Friendly confirmation/error replies
@@ -68,6 +68,11 @@ JUKEBOX_COMMAND_PREFIX=play
 JUKEBOX_CHANNEL_ID=C0123456789
 SPOTIFY_MARKET=US
 PORT=3000
+
+# Optional Slack OAuth install button config
+SLACK_CLIENT_ID=...
+SLACK_SCOPES=chat:write,channels:history
+SLACK_OAUTH_REDIRECT_URI=http://localhost:3000/slack/oauth/callback
 ```
 
 ## Connect Spotify account from app UI
@@ -78,6 +83,13 @@ PORT=3000
 4. Approve the app.
 5. Copy the refresh token shown on callback page.
 6. Set `SPOTIFY_REFRESH_TOKEN` in your environment and restart.
+
+## Install to Slack workspace from app UI
+
+1. Set `SLACK_CLIENT_ID` (and optionally `SLACK_SCOPES`, `SLACK_OAUTH_REDIRECT_URI`).
+2. Open `/` in your browser.
+3. Click **Add to Slack workspace**.
+4. Approve the app in Slack.
 
 ## Local development (Express HTTP server)
 

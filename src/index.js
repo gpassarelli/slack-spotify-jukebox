@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import crypto from 'node:crypto';
 import express from 'express';
 import bolt from '@slack/bolt';
@@ -12,6 +13,7 @@ import {
   findTrack,
   formatTrack
 } from './spotify.js';
+import { buildSlackInstallUrl } from './slack.js';
 
 const { App, ExpressReceiver } = bolt;
 const config = getConfig();
@@ -21,7 +23,6 @@ const receiver = new ExpressReceiver({
   signingSecret: config.slackSigningSecret,
   endpoints: '/slack/events'
 });
-console.log({config})
 const boltApp = new App({
   token: config.slackBotToken,
   receiver
@@ -76,7 +77,10 @@ expressApp.get('/', (_req, res) => {
     <style>
       body { font-family: Arial, sans-serif; background: #121212; color: white; display: grid; place-items: center; min-height: 100vh; margin: 0; }
       .card { width: min(560px, 90vw); background: #1f1f1f; border-radius: 12px; padding: 24px; box-shadow: 0 6px 22px rgba(0,0,0,0.25); }
-      a.button { display: inline-block; background: #1DB954; color: #fff; text-decoration: none; padding: 12px 18px; border-radius: 999px; font-weight: bold; margin-top: 12px; }
+      .button-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+      a.button { display: inline-block; color: #fff; text-decoration: none; padding: 12px 18px; border-radius: 999px; font-weight: bold; }
+      a.spotify { background: #1DB954; }
+      a.slack { background: #4A154B; }
       code { background: #2b2b2b; padding: 2px 6px; border-radius: 4px; }
     </style>
   </head>
@@ -84,11 +88,63 @@ expressApp.get('/', (_req, res) => {
     <main class="card">
       <h1>Slack Spotify Jukebox</h1>
       <p>Connect your Spotify account once so this app can add songs to your playlist.</p>
-      <a class="button" href="/spotify/login">Login with Spotify</a>
+      <div class="button-row">
+        <a class="button spotify" href="/spotify/login">Login with Spotify</a>
+        ${
+          config.slackClientId
+            ? '<a class="button slack" href="/slack/install">Add to Slack workspace</a>'
+            : ''
+        }
+      </div>
       <p>After connecting, copy the refresh token shown on the callback page and set <code>SPOTIFY_REFRESH_TOKEN</code> in your environment.</p>
+      ${
+        config.slackClientId
+          ? '<p>Use <code>SLACK_CLIENT_ID</code> (and optional <code>SLACK_OAUTH_REDIRECT_URI</code>) to enable Slack OAuth install.</p>'
+          : '<p>Set <code>SLACK_CLIENT_ID</code> to show an “Add to Slack workspace” install button.</p>'
+      }
     </main>
   </body>
 </html>`);
+});
+
+expressApp.get('/slack/install', (_req, res) => {
+  if (!config.slackClientId) {
+    res.status(400).send('Missing SLACK_CLIENT_ID. Configure it to enable Slack OAuth installation.');
+    return;
+  }
+
+  const state = crypto.randomUUID();
+  const installUrl = buildSlackInstallUrl({
+    clientId: config.slackClientId,
+    scopes: config.slackScopes,
+    redirectUri: config.slackOAuthRedirectUri,
+    state
+  });
+
+  res.redirect(installUrl);
+});
+
+expressApp.get('/slack/oauth/callback', (req, res) => {
+  const error = req.query.error;
+  const code = req.query.code;
+
+  if (typeof error === 'string' && error.length > 0) {
+    res.status(400).send(`Slack OAuth failed: ${error}`);
+    return;
+  }
+
+  if (!code || typeof code !== 'string') {
+    res.status(400).send('Missing Slack OAuth code.');
+    return;
+  }
+
+  res.status(200).send(`<!doctype html>
+<html lang="en"><head><meta charset="UTF-8" /><title>Slack OAuth Complete</title></head>
+<body style="font-family:Arial,sans-serif;padding:24px;background:#121212;color:#fff;">
+  <h1>Slack installation authorized ✅</h1>
+  <p>Received OAuth code. Exchange this code on your backend if you want to automate token setup.</p>
+  <pre style="white-space:pre-wrap;background:#1f1f1f;padding:12px;border-radius:8px;">${code}</pre>
+</body></html>`);
 });
 
 expressApp.get('/spotify/login', (_req, res) => {
@@ -134,7 +190,7 @@ expressApp.get('/health', (_req, res) => {
 });
 
 export async function startServer(port = process.env.PORT || 3000) {
-  await boltApp.init();
+  await boltApp.start();
 
   expressApp.listen(port, () => {
     // eslint-disable-next-line no-console
