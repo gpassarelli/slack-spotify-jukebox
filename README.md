@@ -15,6 +15,7 @@ the bot will:
 
 ## Features
 
+- HTTP-based Slack Events API receiver (Express)
 - Simple message command (`play <song name>` by default)
 - Optional single-channel lock (only listen in one Slack channel)
 - Friendly confirmation/error replies
@@ -28,14 +29,14 @@ the bot will:
 ## Slack setup
 
 1. Create a Slack app at https://api.slack.com/apps.
-2. Enable **Socket Mode** _or_ Events over HTTP (this app defaults to HTTP with Bolt `app.start`).
-3. Under **OAuth & Permissions**, add bot scopes:
-   - `app_mentions:read` (optional)
+2. Under **OAuth & Permissions**, add bot scopes:
    - `channels:history` (or equivalent for your channel type)
    - `chat:write`
-4. Install the app to your workspace and copy the **Bot User OAuth Token**.
-5. Under **Event Subscriptions**, enable events and add `message.channels` (and/or relevant message events for private channels/DMs).
-6. Point Request URL to your deployed bot URL (for local dev, use something like ngrok).
+3. Install the app to your workspace and copy the **Bot User OAuth Token**.
+4. Under **Event Subscriptions**, enable events and add `message.channels` (and/or relevant message events for private channels/DMs).
+5. Set your Slack Request URL to:
+   - Local dev: `https://<your-tunnel-domain>/slack/events`
+   - Netlify: `https://<your-site>.netlify.app/.netlify/functions/slack-events/slack/events`
 
 ## Spotify setup
 
@@ -66,11 +67,25 @@ SPOTIFY_MARKET=US
 PORT=3000
 ```
 
-## Install and run
+## Local development (Express HTTP server)
 
 ```bash
 npm install
 npm start
+```
+
+This starts an Express server and registers Slack events at `POST /slack/events`.
+
+## Netlify deployment
+
+This repo includes a Netlify Function wrapper at `netlify/functions/slack-events.js` that serves the same Express app.
+
+- Deploy to Netlify.
+- Configure the same environment variables in Netlify site settings.
+- Use this as your Slack Events Request URL:
+
+```text
+https://<your-site>.netlify.app/.netlify/functions/slack-events/slack/events
 ```
 
 ## How users interact
@@ -93,4 +108,3 @@ npm test
 
 - The bot intentionally ignores messages that do not start with the configured command prefix.
 - If `JUKEBOX_CHANNEL_ID` is set, only that channel can submit songs.
-- For production, deploy to a public HTTPS endpoint reachable by Slack.

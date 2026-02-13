@@ -1,4 +1,6 @@
-import { App } from '@slack/bolt';
+import express from 'express';
+import bolt from '@slack/bolt';
+const { App, ExpressReceiver } = bolt;
 import { getConfig } from './config.js';
 import { extractSongQuery } from './message-parser.js';
 import {
@@ -12,12 +14,17 @@ import {
 const config = getConfig();
 const spotifyApi = createSpotifyClient(config);
 
-const app = new App({
-  token: config.slackBotToken,
-  signingSecret: config.slackSigningSecret
+const receiver = new ExpressReceiver({
+  signingSecret: config.slackSigningSecret,
+  endpoints: '/slack/events'
 });
 
-app.message(async ({ message, say, logger }) => {
+const boltApp = new App({
+  token: config.slackBotToken,
+  receiver
+});
+
+boltApp.message(async ({ message, say, logger }) => {
   if (message.subtype || !message.text) {
     return;
   }
@@ -48,8 +55,22 @@ app.message(async ({ message, say, logger }) => {
   }
 });
 
-(async () => {
-  await app.start(process.env.PORT || 3000);
-  // eslint-disable-next-line no-console
-  console.log('⚡️ Slack Spotify Jukebox is running!');
-})();
+export const expressApp = express();
+expressApp.use(receiver.router);
+
+expressApp.get('/health', (_req, res) => {
+  res.status(200).json({ ok: true });
+});
+
+export async function startServer(port = process.env.PORT || 3000) {
+  await boltApp.init();
+
+  expressApp.listen(port, () => {
+    // eslint-disable-next-line no-console
+    console.log(`⚡️ Slack Spotify Jukebox listening on port ${port}`);
+  });
+}
+
+if (process.env.START_HTTP_SERVER === 'true') {
+  startServer();
+}
