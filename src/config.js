@@ -6,6 +6,22 @@ const required = [
   'SPOTIFY_PLAYLIST_ID'
 ];
 
+function normalizeBaseUrl(url) {
+  return url.endsWith('/') ? url.slice(0, -1) : url;
+}
+
+function buildDefaultSlackRedirectUri(env) {
+  if (env.SLACK_OAUTH_REDIRECT_URI) {
+    return env.SLACK_OAUTH_REDIRECT_URI;
+  }
+
+  if (env.URL) {
+    return `${normalizeBaseUrl(env.URL)}/.netlify/functions/app/slack/oauth/callback`;
+  }
+
+  return 'http://localhost:3000/slack/oauth/callback';
+}
+
 export function getConfig(env = process.env) {
   const missing = required.filter((name) => !env[name]);
 
@@ -25,7 +41,7 @@ export function getConfig(env = process.env) {
     spotifyMarket: env.SPOTIFY_MARKET || 'US',
     slackClientId: env.SLACK_CLIENT_ID || null,
     slackScopes: env.SLACK_SCOPES || 'chat:write,channels:history',
-    slackOAuthRedirectUri: env.SLACK_OAUTH_REDIRECT_URI || null,
+    slackOAuthRedirectUri: buildDefaultSlackRedirectUri(env),
     spotifyRedirectUri:
       env.SPOTIFY_REDIRECT_URI ||
       'http://localhost:3000/spotify/oauth/callback'
