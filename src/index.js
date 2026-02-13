@@ -1,5 +1,6 @@
 import express from 'express';
-import { App, ExpressReceiver } from '@slack/bolt';
+import bolt from '@slack/bolt';
+const { App, ExpressReceiver } = bolt;
 import { getConfig } from './config.js';
 import { extractSongQuery } from './message-parser.js';
 import {
