@@ -1,0 +1,18 @@
+{
+  "name": "slack-spotify-jukebox",
+  "version": "1.0.0",
+  "description": "Slack jukebox bot that searches Spotify and adds songs to a playlist",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@slack/bolt": "^3.19.0",
+    "spotify-web-api-node": "^5.0.2"
+  }
+}
