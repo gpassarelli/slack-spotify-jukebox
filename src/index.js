@@ -21,7 +21,7 @@ const receiver = new ExpressReceiver({
   signingSecret: config.slackSigningSecret,
   endpoints: '/slack/events'
 });
-
+console.log({config})
 const boltApp = new App({
   token: config.slackBotToken,
   receiver
