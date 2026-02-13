@@ -89,20 +89,21 @@ expressApp.get('/', (_req, res) => {
       <h1>Slack Spotify Jukebox</h1>
       <p>Connect your Spotify account once so this app can add songs to your playlist.</p>
       <div class="button-row">
-        <a class="button spotify" href="/spotify/login">Login with Spotify</a>
-        ${
-          config.slackClientId
-            ? '<a class="button slack" href="/slack/install">Add to Slack workspace</a>'
-            : ''
-        }
+        <a id="spotify-login-link" class="button spotify" href="/spotify/login">Login with Spotify</a>
+        <a id="slack-install-link" class="button slack" href="/slack/install">Add to Slack workspace</a>
       </div>
       <p>After connecting, copy the refresh token shown on the callback page and set <code>SPOTIFY_REFRESH_TOKEN</code> in your environment.</p>
-      ${
-        config.slackClientId
-          ? '<p>Use <code>SLACK_CLIENT_ID</code> (and optional <code>SLACK_OAUTH_REDIRECT_URI</code>) to enable Slack OAuth install.</p>'
-          : '<p>Set <code>SLACK_CLIENT_ID</code> to show an “Add to Slack workspace” install button.</p>'
-      }
+      <p>If Slack OAuth is not configured, the Slack install route will show a configuration message.</p>
     </main>
+
+    <script>
+      const isNetlify = window.location.hostname.endsWith('.netlify.app');
+      if (isNetlify) {
+        const prefix = '/.netlify/functions/app';
+        document.getElementById('spotify-login-link').href = prefix + '/spotify/login';
+        document.getElementById('slack-install-link').href = prefix + '/slack/install';
+      }
+    </script>
   </body>
 </html>`);
 });

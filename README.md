@@ -37,14 +37,14 @@ the bot will:
 4. Under **Event Subscriptions**, enable events and add `message.channels` (and/or relevant message events for private channels/DMs).
 5. Set your Slack Request URL to:
    - Local dev: `https://<your-tunnel-domain>/slack/events`
-   - Netlify: `https://<your-site>.netlify.app/.netlify/functions/slack-events/slack/events`
+   - Netlify: `https://<your-site>.netlify.app/.netlify/functions/app/slack/events`
 
 ## Spotify setup
 
 1. Create an app at https://developer.spotify.com/dashboard.
 2. Add a redirect URI:
    - Local example: `http://localhost:3000/spotify/oauth/callback`
-   - Netlify example: `https://<your-site>.netlify.app/.netlify/functions/slack-events/spotify/oauth/callback`
+   - Netlify example: `https://<your-site>.netlify.app/.netlify/functions/app/spotify/oauth/callback`
 3. Collect your Client ID and Client Secret.
 
 ## Configuration
@@ -102,14 +102,20 @@ This starts an Express server and registers Slack events at `POST /slack/events`
 
 ## Netlify deployment
 
-This repo includes a Netlify Function wrapper at `netlify/functions/slack-events.js` that serves the same Express app.
+This repo includes a Netlify Function wrapper at `netlify/functions/app.js` that serves the same Express app.
+
+The front page is served by the Express app, wrapped by the Netlify function at `/.netlify/functions/app`.
+
+`netlify.toml` maps `/` to that function so the site home page loads on your Netlify root URL.
 
 - Deploy to Netlify.
 - Configure the same environment variables in Netlify site settings.
+- Front page URL: `https://<your-site>.netlify.app/`
+- Spotify redirect URI: `https://<your-site>.netlify.app/.netlify/functions/app/spotify/oauth/callback`
 - Use this as your Slack Events Request URL:
 
 ```text
-https://<your-site>.netlify.app/.netlify/functions/slack-events/slack/events
+https://<your-site>.netlify.app/.netlify/functions/app/slack/events
 ```
 
 ## How users interact
