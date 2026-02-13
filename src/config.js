@@ -23,6 +23,9 @@ export function getConfig(env = process.env) {
     commandPrefix: env.JUKEBOX_COMMAND_PREFIX || 'play',
     listenChannelId: env.JUKEBOX_CHANNEL_ID || null,
     spotifyMarket: env.SPOTIFY_MARKET || 'US',
+    slackClientId: env.SLACK_CLIENT_ID || null,
+    slackScopes: env.SLACK_SCOPES || 'chat:write,channels:history',
+    slackOAuthRedirectUri: env.SLACK_OAUTH_REDIRECT_URI || null,
     spotifyRedirectUri:
       env.SPOTIFY_REDIRECT_URI ||
       'http://localhost:3000/spotify/oauth/callback'
