@@ -31,11 +31,26 @@ const boltApp = new App({
   receiver
 });
 
+function logInfo(message, context = {}) {
+  // eslint-disable-next-line no-console
+  console.log(`[jukebox] ${message}`, context);
+}
+
+function logError(message, error, context = {}) {
+  // eslint-disable-next-line no-console
+  console.error(`[jukebox] ${message}`, {
+    ...context,
+    error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : error
+  });
+}
+
 async function addSongToPlaylist(songQuery) {
+  logInfo('spotify.add_song.start', { songQuery, market: config.spotifyMarket });
   await ensureAccessToken(spotifyApi);
   const track = await findTrack(spotifyApi, songQuery, config.spotifyMarket);
 
   if (!track) {
+    logInfo('spotify.add_song.not_found', { songQuery });
     return {
       ok: false,
       message: `I couldn't find anything on Spotify for: *${songQuery}*`
@@ -43,6 +58,12 @@ async function addSongToPlaylist(songQuery) {
   }
 
   await addTrackToPlaylist(spotifyApi, config.spotifyPlaylistId, track.uri);
+  logInfo('spotify.add_song.added', {
+    songQuery,
+    trackUri: track.uri,
+    trackName: track.name,
+    artists: track.artists?.map((artist) => artist.name).join(', ') || null
+  });
 
   return {
     ok: true,
@@ -51,18 +72,29 @@ async function addSongToPlaylist(songQuery) {
 }
 
 boltApp.message(async ({ message, say, logger }) => {
+  logInfo('slack.message.received', {
+    channel: message.channel,
+    subtype: message.subtype || null,
+    hasText: Boolean(message.text)
+  });
+
   if (message.subtype || !message.text) {
+    logInfo('slack.message.ignored', { reason: 'subtype_or_empty_text' });
     return;
   }
 
   if (config.listenChannelId && message.channel !== config.listenChannelId) {
+    logInfo('slack.message.ignored', { reason: 'channel_mismatch', expected: config.listenChannelId, received: message.channel });
     return;
   }
 
   const songQuery = extractSongQuery(message.text, config.commandPrefix);
   if (!songQuery) {
+    logInfo('slack.message.ignored', { reason: 'no_command_prefix_match', prefix: config.commandPrefix });
     return;
   }
+
+  logInfo('slack.message.command_detected', { channel: message.channel, songQuery });
 
   if (!config.spotifyRefreshToken) {
     await say('Spotify account is not connected yet. Ask an admin to connect it from the app home page.');
@@ -72,7 +104,9 @@ boltApp.message(async ({ message, say, logger }) => {
   try {
     const result = await addSongToPlaylist(songQuery);
     await say(result.message);
+    logInfo('slack.message.responded', { channel: message.channel, ok: result.ok });
   } catch (error) {
+    logError('slack.message.failed', error, { channel: message.channel, songQuery });
     logger.error(error);
     await say('Sorry, something went wrong while talking to Spotify.');
   }
@@ -83,18 +117,35 @@ const configuredSlashCommandName = config.commandPrefix.startsWith('/')
   : `/${config.commandPrefix}`;
 
 async function handleSlashCommand({ command, ack, respond, logger }) {
+  logInfo('slack.command.received', {
+    command: command.command,
+    channel: command.channel_id,
+    user: command.user_id,
+    text: command.text || ''
+  });
+
   await ack();
+  logInfo('slack.command.acknowledged', { command: command.command, channel: command.channel_id });
 
   if (config.listenChannelId && command.channel_id !== config.listenChannelId) {
+    logInfo('slack.command.rejected', {
+      reason: 'channel_mismatch',
+      command: command.command,
+      expected: config.listenChannelId,
+      received: command.channel_id
+    });
     await respond(`This command is only enabled in channel ${config.listenChannelId}.`);
     return;
   }
 
   const songQuery = command.text?.trim();
   if (!songQuery) {
+    logInfo('slack.command.rejected', { reason: 'missing_song_query', command: command.command });
     await respond(`Please provide a song name, for example: ${command.command} bohemian rhapsody queen`);
     return;
   }
+
+  logInfo('slack.command.processing', { command: command.command, channel: command.channel_id, songQuery });
 
   if (!config.spotifyRefreshToken) {
     await respond('Spotify account is not connected yet. Ask an admin to connect it from the app home page.');
@@ -104,7 +155,14 @@ async function handleSlashCommand({ command, ack, respond, logger }) {
   try {
     const result = await addSongToPlaylist(songQuery);
     await respond(result.message);
+    logInfo('slack.command.responded', { command: command.command, channel: command.channel_id, ok: result.ok });
   } catch (error) {
+    logError('slack.command.failed', error, {
+      command: command.command,
+      channel: command.channel_id,
+      user: command.user_id,
+      songQuery
+    });
     logger.error(error);
     await respond('Sorry, something went wrong while talking to Spotify.');
   }
@@ -181,14 +239,18 @@ expressApp.get('/slack/oauth/callback', (req, res) => {
   const code = req.query.code;
 
   if (typeof error === 'string' && error.length > 0) {
+    logInfo('slack.oauth.failed', { error });
     res.status(400).send(`Slack OAuth failed: ${error}`);
     return;
   }
 
   if (!code || typeof code !== 'string') {
+    logInfo('slack.oauth.failed', { error: 'missing_code' });
     res.status(400).send('Missing Slack OAuth code.');
     return;
   }
+
+  logInfo('slack.oauth.success', { codeLength: code.length });
 
   res.status(200).send(`<!doctype html>
 <html lang="en"><head><meta charset="UTF-8" /><title>Slack OAuth Complete</title></head>
@@ -213,6 +275,7 @@ expressApp.get('/spotify/login', (_req, res) => {
 expressApp.get('/spotify/oauth/callback', async (req, res) => {
   const code = req.query.code;
   if (!code || typeof code !== 'string') {
+    logInfo('spotify.oauth.failed', { error: 'missing_code' });
     res.status(400).send('Missing Spotify OAuth code.');
     return;
   }
@@ -225,6 +288,8 @@ expressApp.get('/spotify/oauth/callback', async (req, res) => {
       code
     });
 
+    logInfo('spotify.oauth.success', { hasRefreshToken: Boolean(tokenResponse.refresh_token) });
+
     res.status(200).send(`<!doctype html>
 <html lang="en"><head><meta charset="UTF-8" /><title>Spotify Connected</title></head>
 <body style="font-family:Arial,sans-serif;padding:24px;background:#121212;color:#fff;">
@@ -233,6 +298,7 @@ expressApp.get('/spotify/oauth/callback', async (req, res) => {
   <pre style="white-space:pre-wrap;background:#1f1f1f;padding:12px;border-radius:8px;">${tokenResponse.refresh_token || 'No refresh token returned'}</pre>
 </body></html>`);
   } catch (error) {
+    logError('spotify.oauth.failed', error);
     res.status(500).send(`Spotify OAuth failed: ${error.message}`);
   }
 });
@@ -242,6 +308,13 @@ expressApp.get('/health', (_req, res) => {
 });
 
 export async function startServer(port = process.env.PORT || 3000) {
+  logInfo('server.starting', {
+    port,
+    commandPrefix: config.commandPrefix,
+    slashCommands: Array.from(slashCommands),
+    channelRestricted: Boolean(config.listenChannelId)
+  });
+
   await boltApp.start();
 
   expressApp.listen(port, () => {
