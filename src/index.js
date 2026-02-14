@@ -1,73 +1,48 @@
 import 'dotenv/config';
 import crypto from 'node:crypto';
 import express from 'express';
-import bolt from '@slack/bolt';
 import { getConfig } from './config.js';
-import { extractSongQuery } from './message-parser.js';
+import { logInfo, logError } from './logger.js';
 import {
-  addTrackToPlaylist,
   buildSpotifyAuthorizeUrl,
   createSpotifyClient,
-  ensureAccessToken,
-  exchangeCodeForTokens,
-  findTrack,
-  formatTrack
+  exchangeCodeForTokens
 } from './spotify.js';
-import { buildSlackInstallUrl } from './slack.js';
+import { buildSlackInstallUrl, createSlackApp, registerSlackHandlers } from './slack.js';
 
-const { App, ExpressReceiver } = bolt;
 const config = getConfig();
-const spotifyApi = createSpotifyClient(config);
 
-const receiver = new ExpressReceiver({
-  signingSecret: config.slackSigningSecret,
-  endpoints: '/slack/events'
-});
-const boltApp = new App({
-  token: config.slackBotToken,
-  receiver
-});
+// Only create Spotify client if refresh token is available
+// OAuth routes don't need the client, only the song-adding functionality does
+let spotifyApi = null;
+if (config.spotifyRefreshToken) {
+  spotifyApi = createSpotifyClient(config);
+  logInfo('spotify.client.initialized', { hasRefreshToken: true });
+} else {
+  logInfo('spotify.client.skipped', { 
+    reason: 'no_refresh_token',
+    message: 'Spotify client not initialized. Complete OAuth flow first.'
+  });
+}
 
-boltApp.message(async ({ message, say, logger }) => {
-  if (message.subtype || !message.text) {
-    return;
-  }
+const { boltApp, receiver } = createSlackApp(config);
 
-  if (config.listenChannelId && message.channel !== config.listenChannelId) {
-    return;
-  }
-
-  const songQuery = extractSongQuery(message.text, config.commandPrefix);
-  if (!songQuery) {
-    return;
-  }
-
-  if (!config.spotifyRefreshToken) {
-    await say('Spotify account is not connected yet. Ask an admin to connect it from the app home page.');
-    return;
-  }
-
-  try {
-    await ensureAccessToken(spotifyApi);
-    const track = await findTrack(spotifyApi, songQuery, config.spotifyMarket);
-
-    if (!track) {
-      await say(`I couldn't find anything on Spotify for: *${songQuery}*`);
-      return;
-    }
-
-    await addTrackToPlaylist(spotifyApi, config.spotifyPlaylistId, track.uri);
-    await say(`Added *${formatTrack(track)}* to the jukebox playlist :notes:`);
-  } catch (error) {
-    logger.error(error);
-    await say('Sorry, something went wrong while talking to Spotify.');
-  }
-});
+// Only register Slack handlers if we have a Spotify client
+if (spotifyApi) {
+  registerSlackHandlers(boltApp, spotifyApi, config);
+} else {
+  logInfo('slack.handlers.skipped', { reason: 'no_spotify_client' });
+}
 
 export const expressApp = express();
 expressApp.use(receiver.router);
 
 expressApp.get('/', (_req, res) => {
+  const hasRefreshToken = Boolean(config.spotifyRefreshToken);
+  const statusMessage = hasRefreshToken 
+    ? '<p style="color:#1DB954;">✓ Spotify is connected and ready!</p>' 
+    : '<p style="color:#ffa500;">⚠️ Spotify not connected yet. Click below to connect.</p>';
+  
   res.status(200).send(`<!doctype html>
 <html lang="en">
   <head>
@@ -87,12 +62,20 @@ expressApp.get('/', (_req, res) => {
   <body>
     <main class="card">
       <h1>Slack Spotify Jukebox</h1>
-      <p>Connect your Spotify account once so this app can add songs to your playlist.</p>
+      ${statusMessage}
+      <p>Connect your Spotify account so this app can add songs to your playlist.</p>
       <div class="button-row">
         <a id="spotify-login-link" class="button spotify" href="/spotify/login">Login with Spotify</a>
         <a id="slack-install-link" class="button slack" href="/slack/install">Add to Slack workspace</a>
       </div>
-      <p>After connecting, copy the refresh token shown on the callback page and set <code>SPOTIFY_REFRESH_TOKEN</code> in your environment.</p>
+      <p><strong>First time setup:</strong></p>
+      <ol>
+        <li>Click "Login with Spotify" above</li>
+        <li>Approve the app</li>
+        <li>Copy the refresh token from the next page</li>
+        <li>Set <code>SPOTIFY_REFRESH_TOKEN</code> in your <code>.env</code> file</li>
+        <li>Restart the app</li>
+      </ol>
       <p>If Slack OAuth is not configured, the Slack install route will show a configuration message.</p>
     </main>
 
@@ -130,14 +113,18 @@ expressApp.get('/slack/oauth/callback', (req, res) => {
   const code = req.query.code;
 
   if (typeof error === 'string' && error.length > 0) {
+    logInfo('slack.oauth.failed', { error });
     res.status(400).send(`Slack OAuth failed: ${error}`);
     return;
   }
 
   if (!code || typeof code !== 'string') {
+    logInfo('slack.oauth.failed', { error: 'missing_code' });
     res.status(400).send('Missing Slack OAuth code.');
     return;
   }
+
+  logInfo('slack.oauth.success', { codeLength: code.length });
 
   res.status(200).send(`<!doctype html>
 <html lang="en"><head><meta charset="UTF-8" /><title>Slack OAuth Complete</title></head>
@@ -162,6 +149,7 @@ expressApp.get('/spotify/login', (_req, res) => {
 expressApp.get('/spotify/oauth/callback', async (req, res) => {
   const code = req.query.code;
   if (!code || typeof code !== 'string') {
+    logInfo('spotify.oauth.failed', { error: 'missing_code' });
     res.status(400).send('Missing Spotify OAuth code.');
     return;
   }
@@ -174,6 +162,8 @@ expressApp.get('/spotify/oauth/callback', async (req, res) => {
       code
     });
 
+    logInfo('spotify.oauth.success', { hasRefreshToken: Boolean(tokenResponse.refresh_token) });
+
     res.status(200).send(`<!doctype html>
 <html lang="en"><head><meta charset="UTF-8" /><title>Spotify Connected</title></head>
 <body style="font-family:Arial,sans-serif;padding:24px;background:#121212;color:#fff;">
@@ -182,6 +172,7 @@ expressApp.get('/spotify/oauth/callback', async (req, res) => {
   <pre style="white-space:pre-wrap;background:#1f1f1f;padding:12px;border-radius:8px;">${tokenResponse.refresh_token || 'No refresh token returned'}</pre>
 </body></html>`);
   } catch (error) {
+    logError('spotify.oauth.failed', error);
     res.status(500).send(`Spotify OAuth failed: ${error.message}`);
   }
 });
@@ -191,6 +182,12 @@ expressApp.get('/health', (_req, res) => {
 });
 
 export async function startServer(port = process.env.PORT || 3000) {
+  logInfo('server.starting', {
+    port,
+    commandPrefix: config.commandPrefix,
+    channelRestricted: Boolean(config.listenChannelId)
+  });
+
   await boltApp.start();
 
   expressApp.listen(port, () => {

@@ -6,6 +6,8 @@ const required = [
   'SPOTIFY_PLAYLIST_ID'
 ];
 
+// SPOTIFY_REFRESH_TOKEN is optional at startup - can be set after OAuth flow
+
 export function getConfig(env = process.env) {
   const missing = required.filter((name) => !env[name]);
 
