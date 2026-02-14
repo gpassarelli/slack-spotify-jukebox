@@ -1,182 +1,48 @@
 import 'dotenv/config';
 import crypto from 'node:crypto';
 import express from 'express';
-import bolt from '@slack/bolt';
 import { getConfig } from './config.js';
-import { extractSongQuery } from './message-parser.js';
+import { logInfo, logError } from './logger.js';
 import {
-  addTrackToPlaylist,
   buildSpotifyAuthorizeUrl,
   createSpotifyClient,
-  ensureAccessToken,
-  exchangeCodeForTokens,
-  findTrack,
-  formatTrack
+  exchangeCodeForTokens
 } from './spotify.js';
-import { buildSlackInstallUrl } from './slack.js';
+import { buildSlackInstallUrl, createSlackApp, registerSlackHandlers } from './slack.js';
 
-const { App, ExpressReceiver } = bolt;
 const config = getConfig();
-const spotifyApi = createSpotifyClient(config);
 
-const receiver = new ExpressReceiver({
-  signingSecret: config.slackSigningSecret,
-  endpoints: {
-    events: '/slack/events',
-    commands: '/slack/commands'
-  }
-});
-const boltApp = new App({
-  token: config.slackBotToken,
-  receiver
-});
-
-function logInfo(message, context = {}) {
-  // eslint-disable-next-line no-console
-  console.log(`[jukebox] ${message}`, context);
-}
-
-function logError(message, error, context = {}) {
-  // eslint-disable-next-line no-console
-  console.error(`[jukebox] ${message}`, {
-    ...context,
-    error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : error
+// Only create Spotify client if refresh token is available
+// OAuth routes don't need the client, only the song-adding functionality does
+let spotifyApi = null;
+if (config.spotifyRefreshToken) {
+  spotifyApi = createSpotifyClient(config);
+  logInfo('spotify.client.initialized', { hasRefreshToken: true });
+} else {
+  logInfo('spotify.client.skipped', { 
+    reason: 'no_refresh_token',
+    message: 'Spotify client not initialized. Complete OAuth flow first.'
   });
 }
 
-async function addSongToPlaylist(songQuery) {
-  logInfo('spotify.add_song.start', { songQuery, market: config.spotifyMarket });
-  await ensureAccessToken(spotifyApi);
-  const track = await findTrack(spotifyApi, songQuery, config.spotifyMarket);
+const { boltApp, receiver } = createSlackApp(config);
 
-  if (!track) {
-    logInfo('spotify.add_song.not_found', { songQuery });
-    return {
-      ok: false,
-      message: `I couldn't find anything on Spotify for: *${songQuery}*`
-    };
-  }
-
-  await addTrackToPlaylist(spotifyApi, config.spotifyPlaylistId, track.uri);
-  logInfo('spotify.add_song.added', {
-    songQuery,
-    trackUri: track.uri,
-    trackName: track.name,
-    artists: track.artists?.map((artist) => artist.name).join(', ') || null
-  });
-
-  return {
-    ok: true,
-    message: `Added *${formatTrack(track)}* to the jukebox playlist :notes:`
-  };
-}
-
-boltApp.message(async ({ message, say, logger }) => {
-  logInfo('slack.message.received', {
-    channel: message.channel,
-    subtype: message.subtype || null,
-    hasText: Boolean(message.text)
-  });
-
-  if (message.subtype || !message.text) {
-    logInfo('slack.message.ignored', { reason: 'subtype_or_empty_text' });
-    return;
-  }
-
-  if (config.listenChannelId && message.channel !== config.listenChannelId) {
-    logInfo('slack.message.ignored', { reason: 'channel_mismatch', expected: config.listenChannelId, received: message.channel });
-    return;
-  }
-
-  const songQuery = extractSongQuery(message.text, config.commandPrefix);
-  if (!songQuery) {
-    logInfo('slack.message.ignored', { reason: 'no_command_prefix_match', prefix: config.commandPrefix });
-    return;
-  }
-
-  logInfo('slack.message.command_detected', { channel: message.channel, songQuery });
-
-  if (!config.spotifyRefreshToken) {
-    await say('Spotify account is not connected yet. Ask an admin to connect it from the app home page.');
-    return;
-  }
-
-  try {
-    const result = await addSongToPlaylist(songQuery);
-    await say(result.message);
-    logInfo('slack.message.responded', { channel: message.channel, ok: result.ok });
-  } catch (error) {
-    logError('slack.message.failed', error, { channel: message.channel, songQuery });
-    logger.error(error);
-    await say('Sorry, something went wrong while talking to Spotify.');
-  }
-});
-
-const configuredSlashCommandName = config.commandPrefix.startsWith('/')
-  ? config.commandPrefix
-  : `/${config.commandPrefix}`;
-
-async function handleSlashCommand({ command, ack, respond, logger }) {
-  logInfo('slack.command.received', {
-    command: command.command,
-    channel: command.channel_id,
-    user: command.user_id,
-    text: command.text || ''
-  });
-
-  await ack();
-  logInfo('slack.command.acknowledged', { command: command.command, channel: command.channel_id });
-
-  if (config.listenChannelId && command.channel_id !== config.listenChannelId) {
-    logInfo('slack.command.rejected', {
-      reason: 'channel_mismatch',
-      command: command.command,
-      expected: config.listenChannelId,
-      received: command.channel_id
-    });
-    await respond(`This command is only enabled in channel ${config.listenChannelId}.`);
-    return;
-  }
-
-  const songQuery = command.text?.trim();
-  if (!songQuery) {
-    logInfo('slack.command.rejected', { reason: 'missing_song_query', command: command.command });
-    await respond(`Please provide a song name, for example: ${command.command} bohemian rhapsody queen`);
-    return;
-  }
-
-  logInfo('slack.command.processing', { command: command.command, channel: command.channel_id, songQuery });
-
-  if (!config.spotifyRefreshToken) {
-    await respond('Spotify account is not connected yet. Ask an admin to connect it from the app home page.');
-    return;
-  }
-
-  try {
-    const result = await addSongToPlaylist(songQuery);
-    await respond(result.message);
-    logInfo('slack.command.responded', { command: command.command, channel: command.channel_id, ok: result.ok });
-  } catch (error) {
-    logError('slack.command.failed', error, {
-      command: command.command,
-      channel: command.channel_id,
-      user: command.user_id,
-      songQuery
-    });
-    logger.error(error);
-    await respond('Sorry, something went wrong while talking to Spotify.');
-  }
-}
-
-const slashCommands = new Set(['/play', configuredSlashCommandName]);
-for (const slashCommandName of slashCommands) {
-  boltApp.command(slashCommandName, handleSlashCommand);
+// Only register Slack handlers if we have a Spotify client
+if (spotifyApi) {
+  registerSlackHandlers(boltApp, spotifyApi, config);
+} else {
+  logInfo('slack.handlers.skipped', { reason: 'no_spotify_client' });
 }
 
 export const expressApp = express();
 expressApp.use(receiver.router);
 
 expressApp.get('/', (_req, res) => {
+  const hasRefreshToken = Boolean(config.spotifyRefreshToken);
+  const statusMessage = hasRefreshToken 
+    ? '<p style="color:#1DB954;">✓ Spotify is connected and ready!</p>' 
+    : '<p style="color:#ffa500;">⚠️ Spotify not connected yet. Click below to connect.</p>';
+  
   res.status(200).send(`<!doctype html>
 <html lang="en">
   <head>
@@ -196,12 +62,20 @@ expressApp.get('/', (_req, res) => {
   <body>
     <main class="card">
       <h1>Slack Spotify Jukebox</h1>
-      <p>Connect your Spotify account once so this app can add songs to your playlist.</p>
+      ${statusMessage}
+      <p>Connect your Spotify account so this app can add songs to your playlist.</p>
       <div class="button-row">
         <a id="spotify-login-link" class="button spotify" href="/spotify/login">Login with Spotify</a>
         <a id="slack-install-link" class="button slack" href="/slack/install">Add to Slack workspace</a>
       </div>
-      <p>After connecting, copy the refresh token shown on the callback page and set <code>SPOTIFY_REFRESH_TOKEN</code> in your environment.</p>
+      <p><strong>First time setup:</strong></p>
+      <ol>
+        <li>Click "Login with Spotify" above</li>
+        <li>Approve the app</li>
+        <li>Copy the refresh token from the next page</li>
+        <li>Set <code>SPOTIFY_REFRESH_TOKEN</code> in your <code>.env</code> file</li>
+        <li>Restart the app</li>
+      </ol>
       <p>If Slack OAuth is not configured, the Slack install route will show a configuration message.</p>
     </main>
 
@@ -311,7 +185,6 @@ export async function startServer(port = process.env.PORT || 3000) {
   logInfo('server.starting', {
     port,
     commandPrefix: config.commandPrefix,
-    slashCommands: Array.from(slashCommands),
     channelRestricted: Boolean(config.listenChannelId)
   });
 
